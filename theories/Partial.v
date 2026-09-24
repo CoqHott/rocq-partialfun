@@ -1,0 +1,293 @@
+From Stdlib Require Import Utf8.
+From Equations Require Import Equations.
+
+Set Default Goal Selector "!".
+Set Universe Polymorphism.
+Set Polymorphic Inductive Cumulativity.
+Set Primitive Projections.
+Set Equations Transparent.
+Unset Equations With Funext.
+
+#[local] Notation "t ∙1" := (proj1_sig t) (at level 20).
+#[local] Notation "⟨ x ⟩" := (exist _ x _) (only parsing).
+(* #[local] Notation "⟨ x | h ⟩" := (exist _ x h). *)
+
+Record Partial A := guarded {
+  defined : Prop ;
+  value : defined → A
+}.
+
+Arguments guarded {A}.
+Arguments defined {A}.
+Arguments value {A}.
+
+Definition ret {A} (a : A) : Partial A :=
+  guarded True (λ _, a).
+
+Definition bind {A B} (pa : Partial A) (pb : A → Partial B) : Partial B :=
+  let (da,va) := pa in
+  guarded
+    (∃ p : da, defined (pb (va p)))
+    (λ p, value (pb (value pa (ex_proj1 p))) (ex_proj2 p)).
+
+(* We get the laws from PropExt and FunExt *)
+
+Axiom PropExt : ∀ (P Q : Prop), P ↔ Q → P = Q.
+Axiom FunExt : ∀ A B (f g : ∀ (x : A), B x), (∀ x, f x = g x) → f = g.
+
+Lemma Partial_ext {A} (u v : Partial A) :
+  defined u ↔ defined v →
+  (∀ pu pv, value u pu = value v pv) →
+  u = v.
+Proof.
+  intros e%PropExt h.
+  destruct u as [du vu], v as [dv vv]. cbn in *. subst.
+  f_equal. apply FunExt. intros. apply h.
+Qed.
+
+Lemma PI (P : Prop) (p q : P) : p = q.
+Proof.
+  assert (e : P = True).
+  { apply PropExt. firstorder. }
+  subst. destruct p, q. reflexivity.
+Qed.
+
+Lemma ret_bind {A B} (a : A) (pb : A → Partial B) :
+  bind (ret a) pb = pb a.
+Proof.
+  apply Partial_ext.
+  - cbn. firstorder. constructor.
+  - cbn. intros [i pu] pv. cbn.
+    f_equal. apply PI.
+Qed.
+
+Lemma bind_ret {A} (pa : Partial A) :
+  bind pa ret = pa.
+Proof.
+  apply Partial_ext.
+  - cbn. firstorder.
+  - cbn. intros [h i] h'. cbn.
+    f_equal. apply PI.
+Qed.
+
+Lemma bind_assoc {A B C} (pa : Partial A) (pb : A → Partial B) (pc : B → Partial C) :
+  bind (bind pa pb) pc = bind pa (λ a, bind (pb a) pc).
+Proof.
+  apply Partial_ext.
+  - cbn. split.
+    + intros [[ha hb] hc]. cbn in *.
+      exists ha, hb. assumption.
+    + intros [ha [hb hc]].
+      unshelve eexists.
+      * exists ha. assumption.
+      * assumption.
+  - cbn. intros [[ha hb] hc] [ha' [hb' hc']]. cbn in *.
+    assert (ha = ha') as -> by apply PI.
+    assert (hb = hb') as -> by apply PI.
+    assert (hc = hc') as -> by apply PI.
+    reflexivity.
+Qed.
+
+(* General recursion by recording call tree
+
+  WARNING: For now using PI (thus PropExt for now).
+
+*)
+
+Inductive orec A B C :=
+| o_ret (x : Partial C)
+| o_rec (x : A) (κ : B x → orec A B C).
+
+Arguments o_ret {A B C}.
+Arguments o_rec {A B C}.
+
+Section Graph.
+
+  Context {A B} (f : ∀ (x : A), orec A B (B x)).
+
+  Inductive orec_graph {a} : orec A B (B a) → B a → Prop :=
+  | ret_graph :
+      ∀ x p,
+        orec_graph (o_ret x) (value x p)
+
+  | rec_graph :
+      ∀ x κ v w,
+        orec_graph (f x) v →
+        orec_graph (κ v) w →
+        orec_graph (o_rec x κ) w.
+
+  Definition graph x v :=
+    orec_graph (f x) v.
+
+  Inductive orec_lt {a} : A → orec A B (B a) → Prop :=
+  | top_lt :
+      ∀ x κ,
+        orec_lt x (o_rec x κ)
+
+  | rec_lt :
+      ∀ x κ v y,
+        graph x v →
+        orec_lt y (κ v) →
+        orec_lt y (o_rec x κ).
+
+  Derive Signature for orec_graph orec_lt.
+  Derive NoConfusion NoConfusionHom for orec.
+
+  Definition partial_lt x y :=
+    orec_lt x (f y).
+
+  Definition domain x :=
+    ∃ v, graph x v.
+
+  Lemma orec_graph_functional :
+    ∀ a o v w,
+      orec_graph (a := a) o v →
+      orec_graph o w →
+      v = w.
+  Proof.
+    intros a o v w hv hw.
+    induction hv in w, hw |- *.
+    - depelim hw. f_equal. apply PI.
+    - depelim hw.
+      assert (v = v0).
+      { apply IHhv1. assumption. }
+      subst. apply IHhv2. assumption.
+  Qed.
+
+  Lemma partial_lt_acc :
+    ∀ x,
+      domain x →
+      Acc partial_lt x.
+  Proof.
+    intros x h.
+    destruct h as [v h].
+    constructor. intros x' h'.
+    red in h. red in h'.
+    set (o := f _) in *. clearbody o.
+    induction h in x', h' |- *.
+    - depelim h'.
+    - depelim h'.
+      + constructor. intros y h.
+        apply IHh1. assumption.
+      + assert (v = v0).
+        { eapply orec_graph_functional. all: eassumption. }
+        subst.
+        apply IHh2. assumption.
+  Qed.
+
+  Lemma lt_preserves_domain :
+    ∀ x y,
+      domain x →
+      partial_lt y x →
+      domain y.
+  Proof.
+    intros x y h hlt.
+    destruct h as [v h].
+    red in hlt. red in h.
+    set (o := f _) in *. clearbody o.
+    induction h in y, hlt |- *.
+    - depelim hlt.
+    - depelim hlt.
+      + eexists. eassumption.
+      + assert (v = v0).
+        { eapply orec_graph_functional. all: eassumption. }
+        subst.
+        apply IHh2. assumption.
+  Qed.
+
+  Abbreviation sigmaarg :=
+    (sigma (λ x, domain x)).
+
+  #[local] Instance wf_partial :
+    WellFounded (λ (x y : sigmaarg), partial_lt (pr1 x) (pr1 y)).
+  Proof.
+    (* eapply Acc_intro_generator with (1 := acc_fuel). *)
+    intros [x h].
+    pose proof (partial_lt_acc x h) as hacc.
+    induction hacc as [x hacc ih] in h |- *.
+    constructor. intros [y h'] hlt.
+    apply ih. assumption.
+  Defined.
+
+  (* We need this for the proofs to go through *)
+  Opaque wf_partial.
+
+  Definition image x :=
+    { v | graph x v }.
+
+  Definition oimage {a} (o : orec A B (B a)) :=
+    { v | orec_graph o v }.
+
+  Definition orec_domain {a} (o : orec A B (B a)) :=
+    ∃ v, orec_graph o v.
+
+  (* The calls to depelim in orec_inst create a lot of universes
+     That's probably a bug/shortcoming of equation but for now
+     we derive explicitly the two inversion principles that are required.
+   *)
+  Lemma orec_graph_rec_inv {a x κ} {w : B a} (e : orec_graph (o_rec x κ) w) :
+    ∃ v, orec_graph (f x) v ∧ orec_graph (κ v) w.
+  Proof.
+    refine (match e in orec_graph m r return
+                  match m with
+                  | o_rec x κ => ∃ v, orec_graph (f x) v ∧ orec_graph (κ v) r
+                  | _ => True
+                  end
+            with
+            | rec_graph _ _ _ _ _ _ => _
+            | _ => _
+            end); try constructor.
+    eexists; split; eassumption.
+  Qed.
+
+  (* orec_inst should no introduce any universe, but we cannot specify it because of Equations *)
+  Equations? orec_inst@{+} {a} (e : orec A B (B a)) (de : orec_domain e)
+    (da : domain a)
+    (ha : ∀ x, orec_lt x e → partial_lt x a)
+    (r : ∀ y, domain y → partial_lt y a → oimage (f y)) : oimage e :=
+    orec_inst (o_ret v) de da ha r := ⟨ value v _ ⟩ ;
+    orec_inst (o_rec x κ) de da ha r := ⟨ ((orec_inst (κ ((r x _ _) ∙1)) _ _ _ r)) ∙1 ⟩.
+  Proof.
+    - red in de. destruct de as [vv hv].
+      depelim hv. assumption.
+    - constructor.
+    - eapply lt_preserves_domain. 1: eassumption.
+      apply ha. constructor.
+    - apply ha. constructor.
+    - destruct de as [v hg].
+      pose proof (orec_graph_rec_inv hg) as (v0&?&?).
+      simpl in *.
+      destruct r as [w hw]. simpl.
+      assert (w = v0).
+      { eapply orec_graph_functional.
+        all: eassumption.
+      }
+      subst.
+      eexists. eassumption.
+    - apply ha. econstructor. 2: eassumption.
+      red. destruct r. assumption.
+    - simpl. destruct orec_inst. simpl.
+      econstructor. 2: eassumption.
+      destruct r. assumption.
+  Defined.
+
+  #[derive(equations=no),tactic=idtac] Equations? def_p (x : A) (h : domain x) : oimage (f x)
+    by wf x partial_lt :=
+    def_p x h := orec_inst (a := x) (f x) h h (λ x Hx, Hx) (λ y hy hr, def_p y hy).
+  Proof. exact hr. Defined.
+
+  Definition def x h :=
+    (def_p x h) ∙1.
+
+  Lemma def_graph_sound :
+    ∀ x h,
+      graph x (def x h).
+  Proof.
+    intros x h.
+    unfold def. destruct def_p. assumption.
+  Qed.
+
+End Graph.
+
+Definition pfix {A B} (f : ∀ (x : A), orec A B (B x)) (a : A) : Partial (B a) :=
+  guarded (domain f a) (def _ _).
