@@ -30,6 +30,9 @@ Definition bind {A B} (pa : Partial A) (pb : A → Partial B) : Partial B :=
     (∃ p : da, defined (pb (va p)))
     (λ p, value (pb (value pa (ex_proj1 p))) (ex_proj2 p)).
 
+Definition undefined {A} : Partial A :=
+  guarded False (λ h, False_rect _ h).
+
 (* We get the laws from PropExt and FunExt *)
 
 Axiom PropExt : ∀ (P Q : Prop), P ↔ Q → P = Q.
