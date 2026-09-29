@@ -223,3 +223,17 @@ Proof.
   intros [v hv] [w hw].
   eapply graph_functional. all: apply def_graph_sound.
 Defined.
+
+Fixpoint orec_apply {A B C} (e : orec A B C) f :=
+  match e with
+  | o_ret v => v
+  | o_rec a k => bind (f a) (λ x, orec_apply (k x) f)
+  end.
+
+Lemma pfix_unfold A B f a :
+  @pfix A B f a ≲ orec_apply (f a) (pfix f).
+Proof.
+  split.
+  - cbn. admit.
+  - admit.
+Admitted.
