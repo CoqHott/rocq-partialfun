@@ -8,7 +8,7 @@ Set Primitive Projections.
 Set Equations Transparent.
 Unset Equations With Funext.
 
-#[local] Notation "t ∙1" := (proj1_sig t) (at level 20).
+#[local] Notation "t ∙1" := (proj1_sig t) (at level 1).
 #[local] Notation "⟨ x ⟩" := (exist _ x _) (only parsing).
 (* #[local] Notation "⟨ x | h ⟩" := (exist _ x h). *)
 

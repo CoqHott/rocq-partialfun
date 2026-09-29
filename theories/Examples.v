@@ -1,6 +1,6 @@
 From Equations Require Import Equations.
 From Stdlib Require Import Utf8 List Arith Lia.
-From PartialFun Require Import  Monad PartialFun.
+From Partial Require Import  Monad PartialFun.
 
 Import ListNotations.
 Import MonadNotations.
