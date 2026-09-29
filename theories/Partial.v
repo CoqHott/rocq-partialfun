@@ -2,8 +2,8 @@ From Stdlib Require Import Utf8.
 From Equations Require Import Equations.
 
 Set Default Goal Selector "!".
-Set Universe Polymorphism.
-Set Polymorphic Inductive Cumulativity.
+(* Set Universe Polymorphism. *)
+(* Set Polymorphic Inductive Cumulativity. *)
 Set Primitive Projections.
 Set Equations Transparent.
 Unset Equations With Funext.
@@ -12,7 +12,7 @@ Unset Equations With Funext.
 #[local] Notation "⟨ x ⟩" := (exist _ x _) (only parsing).
 (* #[local] Notation "⟨ x | h ⟩" := (exist _ x h). *)
 
-Record Partial A := guarded {
+Record partial A := guarded {
   defined : Prop ;
   value : defined → A
 }.
@@ -21,16 +21,16 @@ Arguments guarded {A}.
 Arguments defined {A}.
 Arguments value {A}.
 
-Definition ret {A} (a : A) : Partial A :=
+Definition ret {A} (a : A) : partial A :=
   guarded True (λ _, a).
 
-Definition bind {A B} (pa : Partial A) (pb : A → Partial B) : Partial B :=
+Definition bind {A B} (pa : partial A) (pb : A → partial B) : partial B :=
   let (da,va) := pa in
   guarded
     (∃ p : da, defined (pb (va p)))
     (λ p, value (pb (value pa (ex_proj1 p))) (ex_proj2 p)).
 
-Definition undefined {A} : Partial A :=
+Definition undefined {A} : partial A :=
   guarded False (λ h, False_rect _ h).
 
 (* We get the laws from PropExt and FunExt *)
@@ -38,7 +38,7 @@ Definition undefined {A} : Partial A :=
 Axiom PropExt : ∀ (P Q : Prop), P ↔ Q → P = Q.
 Axiom FunExt : ∀ A B (f g : ∀ (x : A), B x), (∀ x, f x = g x) → f = g.
 
-Lemma Partial_ext {A} (u v : Partial A) :
+Lemma partial_ext {A} (u v : partial A) :
   defined u ↔ defined v →
   (∀ pu pv, value u pu = value v pv) →
   u = v.
@@ -55,28 +55,28 @@ Proof.
   subst. destruct p, q. reflexivity.
 Qed.
 
-Lemma ret_bind {A B} (a : A) (pb : A → Partial B) :
+Lemma ret_bind {A B} (a : A) (pb : A → partial B) :
   bind (ret a) pb = pb a.
 Proof.
-  apply Partial_ext.
+  apply partial_ext.
   - cbn. firstorder. constructor.
   - cbn. intros [i pu] pv. cbn.
     f_equal. apply PI.
 Qed.
 
-Lemma bind_ret {A} (pa : Partial A) :
+Lemma bind_ret {A} (pa : partial A) :
   bind pa ret = pa.
 Proof.
-  apply Partial_ext.
+  apply partial_ext.
   - cbn. firstorder.
   - cbn. intros [h i] h'. cbn.
     f_equal. apply PI.
 Qed.
 
-Lemma bind_assoc {A B C} (pa : Partial A) (pb : A → Partial B) (pc : B → Partial C) :
+Lemma bind_assoc {A B C} (pa : partial A) (pb : A → partial B) (pc : B → partial C) :
   bind (bind pa pb) pc = bind pa (λ a, bind (pb a) pc).
 Proof.
-  apply Partial_ext.
+  apply partial_ext.
   - cbn. split.
     + intros [[ha hb] hc]. cbn in *.
       exists ha, hb. assumption.
@@ -98,7 +98,7 @@ Qed.
 *)
 
 Inductive orec A B C :=
-| o_ret (x : Partial C)
+| o_ret (x : partial C)
 | o_rec (x : A) (κ : B x → orec A B C).
 
 Arguments o_ret {A B C}.
@@ -292,5 +292,5 @@ Section Graph.
 
 End Graph.
 
-Definition pfix {A B} (f : ∀ (x : A), orec A B (B x)) (a : A) : Partial (B a) :=
+Definition pfix {A B} (f : ∀ (x : A), orec A B (B x)) (a : A) : partial (B a) :=
   guarded (domain f a) (def _ _).
