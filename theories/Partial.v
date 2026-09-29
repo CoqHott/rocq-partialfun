@@ -1,4 +1,4 @@
-From Stdlib Require Import Utf8.
+From Stdlib Require Import Utf8 RelationClasses.
 From Equations Require Import Equations.
 
 Set Default Goal Selector "!".
@@ -12,71 +12,174 @@ Unset Equations With Funext.
 #[local] Notation "⟨ x ⟩" := (exist _ x _) (only parsing).
 (* #[local] Notation "⟨ x | h ⟩" := (exist _ x h). *)
 
+Lemma reflexive_eq A R `{Reflexive A R} x y :
+  x = y →
+  R x y.
+Proof.
+  intros []. reflexivity.
+Qed.
+
+(**
+  We define partial values as a record with
+  - a proposition telling us whether it has a value or not;
+  - the value when the proposition holds;
+  - a proof that the value is unique.
+
+  We could also require the proposition to be a mere proposition, or put it in
+  SProp, but that would lead to complications we decided against.
+*)
+
 Record partial A := guarded {
   defined : Prop ;
-  value : defined → A
+  value : defined → A ;
+  unique_value : ∀ p q, value p = value q
 }.
 
 Arguments guarded {A}.
 Arguments defined {A}.
 Arguments value {A}.
+Arguments unique_value {A}.
 
-Definition ret {A} (a : A) : partial A :=
-  guarded True (λ _, a).
+(** Equality and ordering of partial values *)
 
-Definition bind {A B} (pa : partial A) (pb : A → partial B) : partial B :=
-  let (da,va) := pa in
-  guarded
-    (∃ p : da, defined (pb (va p)))
-    (λ p, value (pb (value pa (ex_proj1 p))) (ex_proj2 p)).
+Definition partial_eq {A} (u v : partial A) :=
+  (defined u ↔ defined v) ∧
+  (∀ p q, value u p = value v q).
 
-Definition undefined {A} : partial A :=
-  guarded False (λ h, False_rect _ h).
+Notation "u ≈ v" := (partial_eq u v) (at level 70, no associativity).
 
-(* We get the laws from PropExt and FunExt *)
+Definition partial_le {A} (u v : partial A) :=
+  (defined u → defined v) ∧
+  (∀ p q, value u p = value v q).
 
-Axiom PropExt : ∀ (P Q : Prop), P ↔ Q → P = Q.
-Axiom FunExt : ∀ A B (f g : ∀ (x : A), B x), (∀ x, f x = g x) → f = g.
+Notation "u ≲ v" := (partial_le u v) (at level 70, no associativity).
 
-Lemma partial_ext {A} (u v : partial A) :
-  defined u ↔ defined v →
-  (∀ pu pv, value u pu = value v pv) →
-  u = v.
+#[export]
+Instance Reflexive_partial_eq A : Reflexive (@partial_eq A).
 Proof.
-  intros e%PropExt h.
-  destruct u as [du vu], v as [dv vv]. cbn in *. subst.
-  f_equal. apply FunExt. intros. apply h.
+  intros [P v h]. split. all: cbn.
+  all: firstorder.
 Qed.
 
-Lemma PI (P : Prop) (p q : P) : p = q.
+#[export]
+Instance Symmetric_partial_eq A : Symmetric (@partial_eq A).
 Proof.
+  intros [P v p] [Q w q] [hPQ e]. cbn in *. split. all: cbn.
+  all: firstorder.
+Qed.
+
+#[export]
+Instance Transitive_partial_eq A : Transitive (@partial_eq A).
+Proof.
+  intros [P v p] [Q w q] [R z r] [hPQ evw] [hQR ewz].
+  cbn in *. split. all: cbn. 1: firstorder.
+  intros x y. unshelve erewrite evw. 1: firstorder.
+  eapply ewz.
+Qed.
+
+#[export]
+Instance Reflexive_partial_le A : Reflexive (@partial_le A).
+Proof.
+  intros [P v h]. split. all: cbn.
+  all: firstorder.
+Qed.
+
+#[export]
+Instance Transitive_partial_le A : Transitive (@partial_le A).
+Proof.
+  intros [P v p] [Q w q] [R z r] [hPQ evw] [hQR ewz].
+  cbn in *. split. all: cbn. 1: firstorder.
+  intros x y. unshelve erewrite evw. 1: firstorder.
+  eapply ewz.
+Qed.
+
+Lemma partial_eq_value A (u v : partial A) p q :
+  u ≈ v →
+  value u p = value v q.
+Proof.
+  intros [h e].
+  apply e.
+Qed.
+
+Lemma value_cong A (u v : partial A) p q :
+  u = v →
+  value u p = value v q.
+Proof.
+  intros e.
+  apply partial_eq_value, reflexive_eq. 1: exact _.
+  assumption.
+Qed.
+
+(** Partial equality coincides with equality with sufficient assumptions *)
+
+Definition PropExt := ∀ (P Q : Prop), P ↔ Q → P = Q.
+Definition FunExt := ∀ A B (f g : ∀ (x : A), B x), (∀ x, f x = g x) → f = g.
+Definition ProofIrr := ∀ (P : Prop) (p q : P), p = q.
+
+Lemma PropExt_ProofIrr : PropExt → ProofIrr.
+Proof.
+  intros hpe P p q.
   assert (e : P = True).
-  { apply PropExt. firstorder. }
+  { apply hpe. firstorder. }
   subst. destruct p, q. reflexivity.
 Qed.
 
-Lemma ret_bind {A B} (a : A) (pb : A → partial B) :
-  bind (ret a) pb = pb a.
+Lemma partial_eq_eq A (u v : partial A) :
+  PropExt →
+  FunExt →
+  u ≈ v →
+  u = v.
 Proof.
-  apply partial_ext.
+  intros hpe hfe [h%hpe e].
+  destruct u as [du vu uu], v as [dv vv uv].
+  cbn in *. subst.
+  assert (vu = vv) as ->.
+  { apply hfe. intros. apply e. }
+  f_equal. apply PropExt_ProofIrr. assumption.
+Qed.
+
+(** Partiality is a monad *)
+
+Definition ret {A} (a : A) : partial A :=
+  guarded True (λ _, a) (λ _ _, eq_refl).
+
+#[refine]
+Definition bind {A B} (pa : partial A) (pb : A → partial B) : partial B :=
+  let (da,va,ua) := pa in
+  guarded
+    (∃ p : da, defined (pb (va p)))
+    (λ p, value (pb (value pa (ex_proj1 p))) (ex_proj2 p))
+    _.
+Proof.
+  intros [p1 p2] [q1 q2]. cbn.
+  apply partial_eq_value.
+  erewrite ua. reflexivity.
+Defined.
+
+(** Monad laws, relative to partial equality *)
+
+Lemma ret_bind {A B} (a : A) (pb : A → partial B) :
+  bind (ret a) pb ≈ pb a.
+Proof.
+  split.
   - cbn. firstorder. constructor.
   - cbn. intros [i pu] pv. cbn.
-    f_equal. apply PI.
+    apply unique_value.
 Qed.
 
 Lemma bind_ret {A} (pa : partial A) :
-  bind pa ret = pa.
+  bind pa ret ≈ pa.
 Proof.
-  apply partial_ext.
+  split.
   - cbn. firstorder.
   - cbn. intros [h i] h'. cbn.
-    f_equal. apply PI.
+    apply unique_value.
 Qed.
 
 Lemma bind_assoc {A B C} (pa : partial A) (pb : A → partial B) (pc : B → partial C) :
-  bind (bind pa pb) pc = bind pa (λ a, bind (pb a) pc).
+  bind (bind pa pb) pc ≈ bind pa (λ a, bind (pb a) pc).
 Proof.
-  apply partial_ext.
+  split.
   - cbn. split.
     + intros [[ha hb] hc]. cbn in *.
       exists ha, hb. assumption.
@@ -85,17 +188,21 @@ Proof.
       * exists ha. assumption.
       * assumption.
   - cbn. intros [[ha hb] hc] [ha' [hb' hc']]. cbn in *.
-    assert (ha = ha') as -> by apply PI.
-    assert (hb = hb') as -> by apply PI.
-    assert (hc = hc') as -> by apply PI.
-    reflexivity.
+    apply value_cong. f_equal.
+    apply value_cong. f_equal.
+    apply unique_value.
 Qed.
 
-(* General recursion by recording call tree
+(** Partiality is easily witnessed by the undefined constant *)
 
-  WARNING: For now using PI (thus PropExt for now).
+#[refine]
+Definition undefined {A} : partial A :=
+  guarded False (λ h, False_rect _ h) _.
+Proof.
+  contradiction.
+Defined.
 
-*)
+(** General recursion by recording call tree *)
 
 Inductive orec A B C :=
 | o_ret (x : partial C)
@@ -150,11 +257,20 @@ Section Graph.
   Proof.
     intros a o v w hv hw.
     induction hv in w, hw |- *.
-    - depelim hw. f_equal. apply PI.
+    - depelim hw. apply unique_value.
     - depelim hw.
       assert (v = v0).
       { apply IHhv1. assumption. }
       subst. apply IHhv2. assumption.
+  Qed.
+
+  Lemma graph_functional x v w :
+    graph x v →
+    graph x w →
+    v = w.
+  Proof.
+    intros hv hw.
+    eapply orec_graph_functional. all: eassumption.
   Qed.
 
   Lemma partial_lt_acc :
@@ -292,5 +408,10 @@ Section Graph.
 
 End Graph.
 
+#[refine]
 Definition pfix {A B} (f : ∀ (x : A), orec A B (B x)) (a : A) : partial (B a) :=
-  guarded (domain f a) (def _ _).
+  guarded (domain f a) (def _ _) _.
+Proof.
+  intros [v hv] [w hw].
+  eapply graph_functional. all: apply def_graph_sound.
+Defined.
