@@ -197,7 +197,8 @@ Section Graph.
       destruct r. assumption.
   Defined.
 
-  #[derive(equations=no),tactic=idtac] Equations? def_p (x : A) (h : domain x) : oimage (f x)
+  #[derive(equations=no),tactic=idtac]
+  Equations? def_p (x : A) (h : domain x) : oimage (f x)
     by wf x partial_lt :=
     def_p x h := orec_inst (a := x) (f x) h h (λ x Hx, Hx) (λ y hy hr, def_p y hy).
   Proof. exact hr. Defined.
