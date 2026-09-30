@@ -128,6 +128,22 @@ Proof.
   f_equal. apply PropExt_ProofIrr. assumption.
 Qed.
 
+(** Definition relation *)
+
+Definition hasdef {A} (e : partial A) (v : A) :=
+  defined e ∧ (∀ p, value e p = v).
+
+Notation "e ↦ v" := (hasdef e v) (at level 70, no associativity).
+
+Lemma hasdef_equiv {A} (e : partial A) v h :
+  e ↦ v ↔ value e h = v.
+Proof.
+  split.
+  - intros [_ hev]. apply hev.
+  - intros hev. split. 1: auto.
+    intros p. rewrite <- hev. eapply unique_value.
+Qed.
+
 (** Partiality is a monad *)
 
 Definition ret {A} (a : A) : partial A :=
@@ -181,6 +197,29 @@ Proof.
     apply value_cong. f_equal.
     apply value_cong. f_equal.
     apply unique_value.
+Qed.
+
+(** Monad and hasdef *)
+
+Lemma hasdef_ret A (a : A) :
+  ret a ↦ a.
+Proof.
+  unshelve rewrite hasdef_equiv. 1: constructor.
+  cbn. reflexivity.
+Qed.
+
+Lemma hasdef_bind A B a f v w :
+  a ↦ w →
+  f w ↦ v →
+  @bind A B a f ↦ v.
+Proof.
+  intros ha hf.
+  unshelve rewrite hasdef_equiv.
+  - cbn. destruct ha as [ha ea].
+    exists ha. rewrite ea. apply hf.
+  - cbn. destruct ha as [ha ea]. cbn.
+    destruct hf as [hf ef].
+    rewrite ea. apply ef.
 Qed.
 
 (** Partiality is easily witnessed by the undefined constant *)

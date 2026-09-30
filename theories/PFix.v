@@ -224,16 +224,51 @@ Proof.
   eapply graph_functional. all: apply def_graph_sound.
 Defined.
 
+Lemma pfix_graph A B f a h :
+  graph f a (value (@pfix A B f a) h).
+Proof.
+  cbn in *. apply def_graph_sound.
+Qed.
+
+Lemma graph_pfix A B f a v :
+  graph f a v →
+  @pfix A B f a ↦ v.
+Proof.
+  intros h.
+  split.
+  - cbn. exists v. assumption.
+  - cbn. intros p.
+    pose proof (def_graph_sound _ _ p) as h'.
+    eapply graph_functional. all: eassumption.
+Qed.
+
 Fixpoint orec_apply {A B C} (e : orec A B C) f :=
   match e with
   | o_ret v => v
   | o_rec a k => bind (f a) (λ x, orec_apply (k x) f)
   end.
 
+Lemma orec_graph_apply A B (f : ∀ x, orec A B (B x)) a o (v : B a) :
+  orec_graph f o v →
+  orec_apply o (pfix f) ↦ v.
+Proof.
+  induction 1 as [a x p | a a' k b' b hf ihf hk ihk].
+  - cbn. rewrite hasdef_equiv. reflexivity.
+  - cbn. eapply hasdef_bind.
+    + apply graph_pfix. eassumption.
+    + assumption.
+Qed.
+
 Lemma pfix_unfold A B f a :
   @pfix A B f a ≲ orec_apply (f a) (pfix f).
 Proof.
   split.
-  - cbn. admit.
-  - admit.
-Admitted.
+  - intros [v h]. unfold graph in h.
+    eapply orec_graph_apply in h.
+    apply h.
+  - cbn. intros [v h] q.
+    unfold graph in h. apply orec_graph_apply in h as e.
+    destruct e as [p e]. rewrite e.
+    eapply graph_functional. 2: eassumption.
+    apply def_graph_sound.
+Qed.
